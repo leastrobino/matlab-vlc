@@ -1,7 +1,7 @@
 <?vlc
 
   --
-  --  request.json
+  --  request.json   -*- mode: lua -*-
   --
   --  Created by Léa Strobino.
   --  Copyright 2016. All rights reserved.

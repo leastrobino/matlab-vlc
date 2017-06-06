@@ -2,7 +2,7 @@
 %  VLC.m
 %
 %  Created by Léa Strobino.
-%  Copyright 2016. All rights reserved.
+%  Copyright 2017. All rights reserved.
 %
 
 classdef VLC < matlab.mixin.SetGet
@@ -30,6 +30,7 @@ classdef VLC < matlab.mixin.SetGet
   
   properties (Access = private)
     requestURL
+    password = 'QvGkByH97AOxRvhP';
   end
   
   methods
@@ -43,8 +44,8 @@ classdef VLC < matlab.mixin.SetGet
         if ~(isempty(regexp(e.message,'java\.net\.ConnectException: Connection refused','once')) ...
             && isempty(regexp(e.message,'java\.net\.SocketTimeoutException: connect timed out','once'))) ...
             && isempty(retry)
-          args = sprintf('--extraintf http --http-host localhost --http-port %d --http-password QvGkByH97AOxRvhP --http-src "%s"',...
-            this.Port,fileparts(mfilename('fullpath')));
+          args = sprintf('--extraintf http --http-host localhost --http-port %d --http-password "%s" --http-src "%s"',...
+            this.Port,this.password,fileparts(mfilename('fullpath')));
           if ispc
             if exist('C:\Program Files (x86)\VideoLAN\VLC\vlc.exe','file')
               [~,~] = dos(['"C:\Program Files (x86)\VideoLAN\VLC\vlc.exe" ' args ' &']);
@@ -168,7 +169,7 @@ classdef VLC < matlab.mixin.SetGet
     function f = getFile(~,f)
       [p,n,e] = fileparts(f);
       if isempty(p)
-        p = pwd();
+        p = cd();
       end
       f = fullfile(p,[n e]);
       h = fopen(f);
@@ -208,6 +209,11 @@ classdef VLC < matlab.mixin.SetGet
     end
     
     function s = request(this,r)
+      persistent authorization isc
+      if isempty(authorization)
+        authorization = ['Basic ' org.apache.commons.codec.binary.Base64.encodeBase64(uint8([':' this.password]))'];
+        isc = com.mathworks.mlwidgets.io.InterruptibleStreamCopier.getInterruptibleStreamCopier();
+      end
       try
         if nargin == 2
           url = java.net.URL([this.requestURL '?' r]);
@@ -217,20 +223,23 @@ classdef VLC < matlab.mixin.SetGet
         c = url.openConnection();
         c.setConnectTimeout(50);
         c.setReadTimeout(500);
-        c.setRequestProperty('Authorization','Basic OlF2R2tCeUg5N0FPeFJ2aFA=');
-        i = c.getInputStream();
-        if nargin == 1
+        c.setRequestProperty('Authorization',authorization);
+        if nargin == 2
+          c.setRequestMethod('HEAD');
+          c.connect();
+          c.getContentLength();
+        else
+          i = c.getInputStream();
           o = java.io.ByteArrayOutputStream();
-          isc = com.mathworks.mlwidgets.io.InterruptibleStreamCopier.getInterruptibleStreamCopier();
           isc.copyStream(i,o);
+          i.close();
           o.close();
           s = native2unicode(typecast(o.toByteArray()','uint8'),'UTF-8');
         end
-        i.close();
       catch e
         if strcmp(e.identifier,'MATLAB:Java:GenericException')
           r = regexp(e.message,'\n([^\n]*)\n','tokens','once');
-          error('VLC:SocketException','Bad HTTP response => %s',r{1});
+          error('VLC:SocketException',r{1});
         else
           rethrow(e);
         end

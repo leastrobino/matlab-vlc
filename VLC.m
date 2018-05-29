@@ -2,7 +2,7 @@
 %  VLC.m
 %
 %  Created by Léa Strobino.
-%  Copyright 2017. All rights reserved.
+%  Copyright 2018. All rights reserved.
 %
 
 classdef VLC < matlab.mixin.SetGet
@@ -20,12 +20,11 @@ classdef VLC < matlab.mixin.SetGet
   
   properties
     Loop
-    Random
     Repeat
-  end
-  
-  properties (GetAccess = private)
+    Random
     Fullscreen
+    Rate
+    Volume
   end
   
   properties (Access = private)
@@ -39,12 +38,10 @@ classdef VLC < matlab.mixin.SetGet
       persistent retry %#ok<*NASGU>
       this.requestURL = sprintf('http://127.0.0.1:%d/request.json',this.Port);
       try
-        this.set('Fullscreen','off','Loop','off','Random','off','Repeat','off');
+        this.set('Loop','off','Repeat','off','Random','off','Fullscreen','off','Rate',1);
       catch e
-        if ~(isempty(regexp(e.message,'java\.net\.ConnectException: Connection refused','once')) ...
-            && isempty(regexp(e.message,'java\.net\.SocketTimeoutException: connect timed out','once'))) ...
-            && isempty(retry)
-          args = sprintf('--extraintf http --http-host localhost --http-port %d --http-password "%s" --http-src "%s"',...
+        if isempty(retry) && ~isempty([strfind(e.message,'java.net.ConnectException') strfind(e.message,'java.net.SocketTimeoutException')])
+          args = sprintf('--extraintf http --http-host 127.0.0.1 --http-port %d --http-password "%s" --http-src "%s"',...
             this.Port,this.password,fileparts(mfilename('fullpath')));
           if ispc
             if exist('C:\Program Files (x86)\VideoLAN\VLC\vlc.exe','file')
@@ -66,6 +63,12 @@ classdef VLC < matlab.mixin.SetGet
       retry = [];
     end
     
+    % add 'file' to the playlist
+    function add(this,file)
+      this.request(['c=enqueue&v=' this.urlencode(this.getFile(file))]);
+    end
+    
+    % resume playback or play 'file'
     function play(this,file)
       if nargin > 1
         this.request(['c=add&v=' this.urlencode(this.getFile(file))]);
@@ -74,32 +77,59 @@ classdef VLC < matlab.mixin.SetGet
       end
     end
     
-    function add(this,file)
-      this.request(['c=enqueue&v=' this.urlencode(this.getFile(file))]);
-    end
-    
+    % pause playback
     function pause(this)
       this.request('c=pause');
     end
     
+    % stop playback
     function stop(this)
       this.request('c=stop');
     end
     
+    % play next track
     function next(this)
       this.request('c=next');
     end
     
+    % play previous track
     function prev(this)
       this.request('c=prev');
     end
     
+    % seek to position (in seconds)
+    function seek(this,position)
+      this.request(sprintf('c=seek&v=%.0f',position));
+    end
+    
+    % move item ID 'x' in the playlist after item ID 'y'
+    function move(this,x,y)
+      id = [this.Playlist.Content.ID];
+      if any(x == id) && any(y == id)
+        this.request(sprintf('c=move&v=%.0f,%.0f',x,y));
+      else
+        error('VLC:InvalidTrackID','Invalid track ID.');
+      end
+    end
+    
+    % remove item ID 'x' from the playlist
+    function remove(this,x)
+      if any(x == [this.Playlist.Content.ID])
+        this.request(sprintf('c=delete&v=%.0f',x));
+      else
+        error('VLC:InvalidTrackID','Invalid track ID.');
+      end
+    end
+    
+    % empty the playlist
     function clear(this)
       this.request('c=clear');
     end
     
-    function seek(this,position)
-      this.request(sprintf('c=seek&v=%.0f',position));
+    % quit VLC and delete object
+    function quit(this)
+      this.request('c=quit');
+      delete(this);
     end
     
     function v = get.Version(this)
@@ -142,14 +172,6 @@ classdef VLC < matlab.mixin.SetGet
       this.setValue('loop',loop);
     end
     
-    function v = get.Random(this)
-      v = this.getValue('random');
-    end
-    
-    function set.Random(this,random)
-      this.setValue('random',random);
-    end
-    
     function v = get.Repeat(this)
       v = this.getValue('repeat');
     end
@@ -158,8 +180,36 @@ classdef VLC < matlab.mixin.SetGet
       this.setValue('repeat',repeat);
     end
     
+    function v = get.Random(this)
+      v = this.getValue('random');
+    end
+    
+    function set.Random(this,random)
+      this.setValue('random',random);
+    end
+    
+    function v = get.Fullscreen(this)
+      v = this.getValue('fullscreen');
+    end
+    
     function set.Fullscreen(this,fullscreen)
       this.setValue('fullscreen',fullscreen);
+    end
+    
+    function v = get.Rate(this)
+      v = this.getStatus().rate;
+    end
+    
+    function set.Rate(this,rate)
+      this.request(sprintf('c=rate&v=%.6f',rate));
+    end
+    
+    function v = get.Volume(this)
+      v = this.getStatus().volume;
+    end
+    
+    function set.Volume(this,volume)
+      this.request(sprintf('c=volume&v=%.0f',volume));
     end
     
   end
@@ -225,7 +275,6 @@ classdef VLC < matlab.mixin.SetGet
         c.setReadTimeout(500);
         c.setRequestProperty('Authorization',authorization);
         if nargin == 2
-          c.setRequestMethod('HEAD');
           c.connect();
           c.getContentLength();
         else

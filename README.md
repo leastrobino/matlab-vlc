@@ -82,3 +82,6 @@ ans =
 
 >> v.stop()
 ```
+
+## Requires
+- A JSON decoding function ([json_decode](https://gitlab.com/leastrobino/matlab-json))
